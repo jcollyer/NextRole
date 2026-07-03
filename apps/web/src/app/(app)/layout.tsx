@@ -4,7 +4,7 @@ import { NavBar } from '@/components/NavBar';
 import { auth } from '@/server/auth';
 
 /**
- * Layout for the authenticated area (/home, /settings). Guards access — any
+ * Layout for the authenticated area (/dashboard, /settings). Guards access — any
  * unauthenticated visitor is bounced to the login page at the root route —
  * and renders the global navigation bar above every page.
  */

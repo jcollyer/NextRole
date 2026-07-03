@@ -40,6 +40,7 @@ if (process.env.AUTH_RESEND_KEY) {
 export const { handlers, signIn, signOut, auth }: NextAuthResult = NextAuth({
   adapter: PrismaAdapter(prisma),
   providers,
+  trustHost: true,
   session: {
     strategy: 'database',
     // 90 days. Each request within updateAge (24h, default) slides the expiry

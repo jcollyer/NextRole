@@ -1,21 +1,21 @@
 {
   "expo": {
-    "name": "SaaS Template",
-    "slug": "saas-template",
+    "name": "NextRole",
+    "slug": "nextrole",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "scheme": "saas",
+    "scheme": "nextrole",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.example.saastemplate",
+      "bundleIdentifier": "com.example.nextrole",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "com.example.saastemplate"
+      "package": "com.example.nextrole"
     },
     "web": {
       "bundler": "metro"

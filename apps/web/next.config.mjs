@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  allowedDevOrigins: ['https://jointly-topical-leech.ngrok-free.app'],
   // Workspace packages are TypeScript source — let Next compile them.
   transpilePackages: ['@saas/api', '@saas/db', '@saas/types'],
   // tRPC + superjson on RSC works best with Prisma treated as external.

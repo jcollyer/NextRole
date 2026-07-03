@@ -1,16 +1,16 @@
-// SaaS template Prisma schema
+// NextRole Prisma schema
 //
 // Models:
 //   - User / Account / Session / VerificationToken: the NextAuth (Auth.js) v5
 //     adapter models. The User table is the canonical record for a person in
-//     your app — add product columns to it as your schema grows.
+//     your app.
 //
-// Everything here is intentionally minimal. This is the blank-slate starting
-// point for a new project: authentication works end to end, and you own the
-// User model to extend however you like.
+// NextRole keeps Auth.js tables alongside the job-search CRM domain models so
+// user-owned companies, jobs, applications, scans, and signals can grow from
+// single-user MVP into multi-user support later.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   // Include the Vercel/Lambda Linux engine alongside the local native engine
   // so the same generated client runs locally and on serverless hosts.
   binaryTargets = ["native", "rhel-openssl-3.0.x"]
@@ -27,15 +27,20 @@ datasource db {
 // ----------------------------------------------------------------------------
 
 model User {
-  id            String    @id @default(cuid())
+  id            String         @id @default(cuid())
   name          String?
-  email         String?   @unique
+  email         String?        @unique
   emailVerified DateTime?
   image         String?
   accounts      Account[]
   sessions      Session[]
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  companies     Company[]
+  jobs          Job[]
+  applications  Application[]
+  scanHistory   ScanHistory[]
+  hiringSignals HiringSignal[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 }
 
 model Account {
@@ -75,4 +80,180 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+// ----------------------------------------------------------------------------
+// NextRole domain models
+// ----------------------------------------------------------------------------
+
+enum CompanyPriority {
+  LOW
+  MEDIUM
+  HIGH
+  DREAM
+}
+
+enum CompanyStatus {
+  TRACKING
+  WATCHING
+  APPLIED
+  INTERVIEWING
+  PAUSED
+  ARCHIVED
+}
+
+enum JobStatus {
+  NEW
+  SAVED
+  ANALYZED
+  APPLIED
+  DISMISSED
+  ARCHIVED
+}
+
+enum ApplicationStatus {
+  SAVED
+  APPLIED
+  RECRUITER_SCREEN
+  HIRING_MANAGER
+  TECHNICAL_INTERVIEW
+  FINAL_INTERVIEW
+  OFFER
+  REJECTED
+  ARCHIVED
+}
+
+enum ScanStatus {
+  SUCCESS
+  FAILED
+}
+
+enum HiringSignalType {
+  FUNDING
+  HIRING_ANNOUNCEMENT
+  PRODUCT_LAUNCH
+  FOUNDER_POST
+  NEW_OFFICE
+  LAYOFF_RISK
+  OTHER
+}
+
+model Company {
+  id            String          @id @default(cuid())
+  userId        String
+  name          String
+  website       String?
+  careersUrl    String?
+  category      String?
+  stage         String?
+  location      String?
+  remotePolicy  String?
+  fundingStatus String?
+  notes         String?         @db.Text
+  priority      CompanyPriority @default(MEDIUM)
+  status        CompanyStatus   @default(TRACKING)
+  lastScannedAt DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobs          Job[]
+  applications  Application[]
+  scanHistory   ScanHistory[]
+  hiringSignals HiringSignal[]
+
+  @@unique([userId, name])
+  @@index([userId, priority])
+  @@index([userId, status])
+}
+
+model Job {
+  id                String    @id @default(cuid())
+  userId            String
+  companyId         String
+  title             String
+  url               String?
+  location          String?
+  remotePolicy      String?
+  description       String?   @db.Text
+  source            String?
+  dateFound         DateTime  @default(now())
+  isNew             Boolean   @default(true)
+  matchScore        Int?
+  aiSummary         String?   @db.Text
+  aiFitReason       String?   @db.Text
+  extractedKeywords String[]  @default([])
+  outreachAngle     String?   @db.Text
+  status            JobStatus @default(NEW)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  applications Application[]
+
+  @@unique([userId, companyId, url])
+  @@index([userId, status])
+  @@index([userId, isNew])
+  @@index([companyId])
+}
+
+model Application {
+  id               String            @id @default(cuid())
+  userId           String
+  companyId        String
+  jobId            String?
+  status           ApplicationStatus @default(SAVED)
+  appliedAt        DateTime?
+  lastFollowUpAt   DateTime?
+  nextFollowUpAt   DateTime?
+  recruiterContact String?
+  referralContact  String?
+  notes            String?           @db.Text
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  job     Job?    @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+  @@index([userId, nextFollowUpAt])
+  @@index([companyId])
+  @@index([jobId])
+}
+
+model ScanHistory {
+  id           String     @id @default(cuid())
+  userId       String
+  companyId    String
+  status       ScanStatus
+  jobsFound    Int        @default(0)
+  errorMessage String?    @db.Text
+  scannedAt    DateTime   @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([userId, scannedAt])
+  @@index([companyId])
+}
+
+model HiringSignal {
+  id         String           @id @default(cuid())
+  userId     String
+  companyId  String
+  type       HiringSignalType @default(OTHER)
+  title      String
+  sourceUrl  String?
+  signalDate DateTime?
+  notes      String?          @db.Text
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@index([companyId])
 }

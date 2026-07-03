@@ -11,8 +11,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'SaaS Template',
-  description: 'A blank-slate starter with auth, database, and a typed API.',
+  title: 'NextRole',
+  description: 'An AI-powered job-search CRM for tracking companies, roles, applications, and follow-ups.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

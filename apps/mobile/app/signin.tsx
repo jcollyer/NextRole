@@ -35,11 +35,11 @@ export default function SignInScreen() {
       <View className="flex-1 items-center justify-center px-8">
         <View className="mb-10 items-center">
           <View className="bg-primary mb-4 h-16 w-16 items-center justify-center rounded-2xl">
-            <Text className="text-3xl font-bold text-white">S</Text>
+            <Text className="text-3xl font-bold text-white">N</Text>
           </View>
-          <Text className="text-3xl font-bold text-slate-900">SaaS Template</Text>
+          <Text className="text-3xl font-bold text-slate-900">NextRole</Text>
           <Text className="mt-2 text-center text-base text-slate-500">
-            Sign in to get started.
+            Sign in to manage your job-search pipeline.
           </Text>
         </View>
 

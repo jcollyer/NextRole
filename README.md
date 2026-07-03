@@ -1,96 +1,70 @@
-# SaaS Template
+# NextRole
 
-A blank-slate monorepo for starting new products quickly. It ships with authentication, a database, a fully typed API, and matching web + mobile clients — so you can delete the demo screens and start building features on day one.
+NextRole is a personal job-search CRM for tracking target companies, discovering roles, scoring fit, and keeping application follow-ups visible.
 
-## What's included
+## Current MVP
 
-- **Turborepo** monorepo with npm workspaces.
-- **Next.js (App Router)** web app with React 19.
-- **Expo / React Native** mobile app (Expo Router) sharing the same typed API.
-- **Auth.js (NextAuth v5)** with Google SSO and Resend email magic links, using the Prisma adapter and database sessions.
-- **Neon Postgres + Prisma** for data.
-- **tRPC + TanStack React Query** for end-to-end typesafe API calls via hooks.
-- **Zod** for shared validation schemas.
-- **Tailwind CSS** (web) / **NativeWind** (mobile) for styling.
-- **Radix UI** primitives (dialog, dropdown menu, etc.) on the web.
-- **lucide** icons on both clients.
+- Auth.js / NextAuth with Google SSO and optional Resend magic links.
+- Protected web app routes under `/dashboard`, `/companies`, `/jobs`, `/applications`, `/follow-ups`, `/signals`, `/import`, and `/settings`.
+- Prisma models for companies, jobs, applications, scan history, and hiring signals.
+- Company CRUD with priority, status, category, remote policy, careers URL, and notes.
+- CSV company import with client-side parsing, validation, preview, and duplicate-aware import.
+- Manual job entry plus a first-pass role analysis button.
+- Manual careers-page scans that detect likely role links and store new jobs.
+- Application and follow-up tracking.
+- Manual funding and hiring signal tracking.
 
-## Structure
+## Tech Stack
 
-```
-apps/
-  web/      Next.js web app
-  mobile/   Expo React Native app
-packages/
-  api/      tRPC routers, context, and the AppRouter type
-  db/       Prisma schema, client, and seed
-  types/    Shared Zod schemas
-  config/   Shared TypeScript configs
-```
+- Turborepo monorepo with npm workspaces.
+- Next.js App Router, React, TypeScript, Tailwind CSS, shadcn-style UI primitives.
+- Auth.js with Prisma adapter and database sessions.
+- PostgreSQL and Prisma.
+- tRPC package scaffold retained for future typed API expansion.
+- Expo mobile scaffold retained from the starter, not yet reworked for NextRole.
 
-## Features out of the box
+## Getting Started
 
-- A **login page on the root route** (`/`). Authenticated visitors are redirected to `/home`; unauthenticated visitors hitting a protected route are sent back here.
-- A **`/home`** page that greets the signed-in user ("Hello {first name or email}").
-- A **global navigation bar** with the user's avatar (photo or initials) on the left. The avatar opens a dropdown with a link to **`/settings`** and a **Sign out** button.
-- A **`/settings`** page showing the user's profile, with an editable name and a **delete-account** flow gated behind a typed-confirmation modal.
-- The same flows on mobile: sign-in, home greeting, and a settings screen with sign out + delete account.
-
-## Getting started
-
-1. **Install dependencies** (this also runs `prisma generate`):
+1. Install dependencies:
 
    ```bash
    npm install
    ```
 
-2. **Configure environment variables.** Copy `.env.example` to `.env` and fill in:
+2. Configure `.env`:
 
-   - `DATABASE_URL` / `DIRECT_URL` — your Neon Postgres connection strings.
-   - `AUTH_SECRET` — generate with `openssl rand -base64 32`.
-   - `AUTH_URL` — e.g. `http://localhost:3000` in development.
-   - `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` — Google OAuth credentials.
-   - `AUTH_RESEND_KEY` / `EMAIL_FROM` — Resend API key for magic-link email.
+   - `DATABASE_URL` / `DIRECT_URL`
+   - `AUTH_SECRET`
+   - `AUTH_URL`, for example `http://localhost:3000`
+   - `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`
+   - Optional: `AUTH_RESEND_KEY` / `EMAIL_FROM`
 
-   Providers are added conditionally, so the app still boots with only some of these set.
-
-3. **Create the database schema:**
+3. Apply the database schema:
 
    ```bash
-   npm run db:migrate      # or: npm run db:push
+   npm run db:migrate
    ```
 
-4. **Run the web app:**
+   For quick local iteration, `npm run db:push` also works.
+
+4. Run the web app:
 
    ```bash
-   npm run dev             # http://localhost:3000
+   npm run dev
    ```
 
-5. **Run the mobile app:**
-
-   ```bash
-   npm run mobile
-   ```
-
-   For a phone to reach your local web server, set `EXPO_PUBLIC_API_URL` to your machine's LAN IP, e.g. `EXPO_PUBLIC_API_URL=http://192.168.1.42:3000 npm run mobile`.
-
-## Common scripts
+## Common Scripts
 
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Start the Next.js web app |
-| `npm run mobile` | Start the Expo dev server |
 | `npm run build` | Build all apps via Turbo |
 | `npm run typecheck` | Typecheck every workspace |
-| `npm run db:migrate` | Create/apply a Prisma migration (dev) |
+| `npm run db:migrate` | Create/apply a Prisma migration |
+| `npm run db:push` | Push schema changes directly |
 | `npm run db:studio` | Open Prisma Studio |
 | `npm run db:seed` | Seed a demo user |
-| `npm run format` | Prettier across the repo |
 
-## Renaming the project
+## Notes
 
-The workspace scope is `@saas/*`. To rebrand, find-and-replace `@saas/` with your own scope (e.g. `@acme/`) across `package.json` files and imports, and update `name`/`slug`/`scheme` in `apps/mobile/app.json`.
-
-## How auth works
-
-Sign-in happens on the web. The web app uses Auth.js with database sessions. The mobile app opens the web sign-in flow in an in-app browser via `/auth/mobile`, which hands back a session token that the app stores in SecureStore and sends as a bearer token on every tRPC request. Both clients therefore resolve to the exact same session shape on the server.
+The workspace package scope is still `@saas/*` from the original scaffold. That can be renamed later as a mechanical follow-up once the product surface settles.

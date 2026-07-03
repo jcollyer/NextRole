@@ -83,7 +83,7 @@ export function SettingsView() {
     <div className="mx-auto max-w-2xl space-y-6">
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="sm" asChild>
-          <Link href="/home">
+          <Link href="/dashboard">
             <ArrowLeft className="mr-1 h-4 w-4" />
             Back
           </Link>

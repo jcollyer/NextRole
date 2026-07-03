@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { Settings, LogOut } from 'lucide-react';
+import { usePathname } from 'next/navigation';
+import { BriefcaseBusiness, Building2, CalendarClock, LogOut, Radar, Settings, Signal, Sparkles, Upload } from 'lucide-react';
 
 import {
   DropdownMenu,
@@ -13,6 +14,16 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { getInitials } from '@/lib/utils';
 import { signOutAction } from '@/server/actions';
+
+const navItems = [
+  { href: '/dashboard', label: 'Dashboard', icon: Sparkles },
+  { href: '/companies', label: 'Companies', icon: Building2 },
+  { href: '/jobs', label: 'Jobs', icon: BriefcaseBusiness },
+  { href: '/applications', label: 'Applications', icon: Radar },
+  { href: '/follow-ups', label: 'Follow-ups', icon: CalendarClock },
+  { href: '/signals', label: 'Signals', icon: Signal },
+  { href: '/import', label: 'Import', icon: Upload },
+];
 
 interface NavBarProps {
   name: string | null | undefined;
@@ -27,10 +38,33 @@ interface NavBarProps {
  */
 export function NavBar({ name, email, image }: NavBarProps) {
   const initials = getInitials(name ?? email);
+  const pathname = usePathname();
 
   return (
     <header className="border-b">
-      <div className="container flex h-14 items-center">
+      <div className="container flex min-h-16 flex-wrap items-center gap-3 py-3">
+        <Link href="/dashboard" className="mr-2 flex items-center gap-2 font-semibold">
+          <span className="bg-primary text-primary-foreground flex h-9 w-9 items-center justify-center rounded-md">N</span>
+          <span>NextRole</span>
+        </Link>
+        <nav className="flex flex-1 flex-wrap items-center gap-1">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`inline-flex h-9 items-center gap-2 rounded-md px-3 text-sm font-medium transition-colors ${
+                  active ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button

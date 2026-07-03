@@ -4,8 +4,8 @@ import { trpc } from '../../src/lib/trpc';
 import { getFirstName } from '../../src/lib/format';
 
 /**
- * Home screen for authenticated users. Greets the user by first name (falling
- * back to email). The blank canvas for your app's real content.
+ * Home screen for authenticated users. The full CRM is currently web-first;
+ * this keeps the mobile shell branded while the product surface grows.
  */
 export default function HomeScreen() {
   const { data: me, isLoading } = trpc.user.me.useQuery();
@@ -24,7 +24,7 @@ export default function HomeScreen() {
     <View className="flex-1 bg-slate-50 px-5 pt-8">
       <Text className="text-2xl font-semibold text-slate-900">Hello {greetingName}</Text>
       <Text className="mt-2 text-base text-slate-500">
-        You&apos;re signed in. This is your home screen — start building from here.
+        NextRole is ready on the web dashboard for companies, jobs, applications, and follow-ups.
       </Text>
     </View>
   );

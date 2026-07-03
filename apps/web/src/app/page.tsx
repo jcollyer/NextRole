@@ -14,7 +14,7 @@ interface LoginPageProps {
 
 /**
  * The login page lives on the root route. Authenticated users are sent
- * straight to /home; everyone else sees the sign-in card. Auth.js is
+ * straight to /dashboard; everyone else sees the sign-in card. Auth.js is
  * configured with `pages.signIn = '/'`, so any unauthenticated hit on a
  * protected route also lands here.
  */
@@ -22,7 +22,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const { error, 'check-email': checkEmail } = await searchParams;
 
   const session = await auth();
-  if (session?.user) redirect('/home');
+  if (session?.user) redirect('/dashboard');
 
   const hasGoogle = !!process.env.AUTH_GOOGLE_ID;
   const hasEmail = !!process.env.AUTH_RESEND_KEY;
@@ -31,11 +31,11 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     <main className="flex min-h-dvh items-center justify-center p-6">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <div className="bg-primary mx-auto mb-2 flex size-10 items-center justify-center rounded-xl">
-            <span className="text-primary-foreground text-lg font-bold">S</span>
+          <div className="bg-primary mx-auto mb-2 flex size-10 items-center justify-center rounded-lg">
+            <span className="text-primary-foreground text-lg font-bold">N</span>
           </div>
-          <CardTitle className="text-2xl">Welcome back</CardTitle>
-          <CardDescription>Sign in to continue.</CardDescription>
+          <CardTitle className="text-2xl">NextRole</CardTitle>
+          <CardDescription>Sign in to manage your job-search pipeline.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {error ? (
