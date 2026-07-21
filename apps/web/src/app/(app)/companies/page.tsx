@@ -5,28 +5,40 @@ import { Plus, Upload } from 'lucide-react';
 import { prisma } from '@saas/db';
 
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { auth } from '@/server/auth';
-import { scanCompany } from '@/features/nextrole/actions';
+import { scanAllCompanies, scanCompany } from '@/features/nextrole/actions';
+import { ScanAllCompaniesButton } from '@/features/nextrole/ScanAllCompaniesButton';
 import { EmptyState, formatDate, PageHeader, StatusBadge } from '@/features/nextrole/ui';
 
 export default async function CompaniesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ imported?: string }>;
+  searchParams: Promise<{ imported?: string; scanResult?: string; scanned?: string; found?: string; failed?: string }>;
 }) {
   const session = await auth();
   if (!session?.user?.id) redirect('/');
-  const { imported } = await searchParams;
+  const { imported, scanResult, scanned, found, failed } = await searchParams;
 
   const companies = await prisma.company.findMany({
     where: { userId: session.user.id },
-    include: { _count: { select: { jobs: true, applications: true, hiringSignals: true } } },
+    include: {
+      _count: { select: { jobs: true, applications: true, hiringSignals: true } },
+      scanHistory: {
+        orderBy: { scannedAt: 'desc' },
+        take: 1,
+      },
+    },
     orderBy: [{ priority: 'desc' }, { updatedAt: 'desc' }],
   });
+  const scannableCompanies = companies.filter((company) => company.careersUrl).length;
 
   return (
     <div>
       <PageHeader title="Companies" eyebrow={imported ? `${imported} rows imported` : 'Target account list'}>
+        <form action={scanAllCompanies}>
+          <ScanAllCompaniesButton disabled={scannableCompanies === 0} />
+        </form>
         <Button asChild variant="outline">
           <Link href="/import">
             <Upload className="h-4 w-4" />
@@ -41,40 +53,92 @@ export default async function CompaniesPage({
         </Button>
       </PageHeader>
 
+      {scanResult ? (
+        <div
+          className={cn(
+            'mb-4 rounded-lg border p-3 text-sm',
+            scanResult === 'complete'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+              : 'border-amber-200 bg-amber-50 text-amber-800',
+          )}
+        >
+          {scanResult === 'complete'
+            ? `Scan complete: ${scanned ?? 0} companies scanned, ${found ?? 0} new jobs found, ${failed ?? 0} failed.`
+            : 'No companies with careers URLs are ready to scan yet.'}
+        </div>
+      ) : null}
+
       {companies.length ? (
         <div className="overflow-hidden rounded-lg border bg-card">
-          <div className="grid grid-cols-[minmax(220px,1.4fr)_1fr_120px_140px_140px] gap-4 border-b px-4 py-3 text-xs font-medium uppercase text-muted-foreground max-lg:hidden">
+          <div className="grid grid-cols-[minmax(220px,1.3fr)_minmax(140px,0.8fr)_110px_minmax(220px,1.1fr)_140px] gap-4 border-b px-4 py-3 text-xs font-medium uppercase text-muted-foreground max-lg:hidden">
             <span>Company</span>
             <span>Category</span>
             <span>Priority</span>
-            <span>Last scan</span>
+            <span>Scan history</span>
             <span>Actions</span>
           </div>
           <div className="divide-y">
-            {companies.map((company) => (
-              <div key={company.id} className="grid gap-3 px-4 py-4 lg:grid-cols-[minmax(220px,1.4fr)_1fr_120px_140px_140px] lg:items-center">
-                <Link href={`/companies/${company.id}`} className="min-w-0">
-                  <span className="block truncate font-medium">{company.name}</span>
-                  <span className="text-muted-foreground block truncate text-sm">
-                    {company.location ?? 'Location TBD'} · {company._count.jobs} jobs · {company._count.applications} apps
-                  </span>
-                </Link>
-                <span className="text-sm">{company.category ?? 'Uncategorized'}</span>
-                <StatusBadge value={company.priority} tone={company.priority === 'DREAM' ? 'hot' : 'neutral'} />
-                <span className="text-muted-foreground text-sm">{formatDate(company.lastScannedAt)}</span>
-                <div className="flex gap-2">
-                  <Button asChild variant="outline" size="sm">
-                    <Link href={`/companies/${company.id}`}>Open</Link>
-                  </Button>
-                  <form action={scanCompany}>
-                    <input type="hidden" name="companyId" value={company.id} />
-                    <Button type="submit" variant="outline" size="sm" disabled={!company.careersUrl}>
-                      Scan
+            {companies.map((company) => {
+              const latestScan = company.scanHistory[0];
+              const hasFoundJobs = latestScan?.status === 'SUCCESS' && latestScan.jobsFound > 0;
+
+              return (
+                <div
+                  key={company.id}
+                  className={cn(
+                    'grid gap-3 px-4 py-4 lg:grid-cols-[minmax(220px,1.3fr)_minmax(140px,0.8fr)_110px_minmax(220px,1.1fr)_140px] lg:items-center',
+                    hasFoundJobs && 'bg-emerald-50/70 ring-1 ring-inset ring-emerald-200',
+                  )}
+                >
+                  <Link href={`/companies/${company.id}`} className="min-w-0">
+                    <span className="block truncate font-medium">{company.name}</span>
+                    <span className="text-muted-foreground block truncate text-sm">
+                      {company.location ?? 'Location TBD'} · {company._count.jobs} jobs · {company._count.applications} apps
+                    </span>
+                  </Link>
+                  <span className="text-sm">{company.category ?? 'Uncategorized'}</span>
+                  <StatusBadge value={company.priority} tone={company.priority === 'DREAM' ? 'hot' : 'neutral'} />
+                  <div className="min-w-0">
+                    {latestScan ? (
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <StatusBadge value={latestScan.status} tone={latestScan.status === 'SUCCESS' ? 'good' : 'warn'} />
+                          <span className="text-muted-foreground text-sm">{formatDate(latestScan.scannedAt)}</span>
+                        </div>
+                        <p className={cn('truncate text-xs', hasFoundJobs ? 'font-medium text-emerald-700' : 'text-muted-foreground')}>
+                          {latestScan.status === 'SUCCESS'
+                            ? `${latestScan.jobsFound} jobs found`
+                            : latestScan.errorMessage ?? 'Scan failed'}
+                        </p>
+                        {hasFoundJobs ? (
+                          <Link href={`/jobs?companyId=${company.id}`} className="text-xs font-medium text-emerald-700 hover:underline">
+                            View job descriptions
+                          </Link>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        <span className="text-muted-foreground text-sm">No scans yet</span>
+                        <p className="text-muted-foreground truncate text-xs">
+                          {company.careersUrl ? 'Ready to scan' : 'Add a careers URL to scan'}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button asChild variant="outline" size="sm">
+                      <Link href={`/companies/${company.id}`}>Open</Link>
                     </Button>
-                  </form>
+                    <form action={scanCompany}>
+                      <input type="hidden" name="companyId" value={company.id} />
+                      <Button type="submit" variant="outline" size="sm" disabled={!company.careersUrl}>
+                        Scan
+                      </Button>
+                    </form>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       ) : (

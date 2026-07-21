@@ -9,19 +9,39 @@ import { auth } from '@/server/auth';
 import { analyzeJob, deleteJob } from '@/features/nextrole/actions';
 import { EmptyState, formatDate, PageHeader, scoreTone, StatusBadge } from '@/features/nextrole/ui';
 
-export default async function JobsPage() {
+export default async function JobsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ companyId?: string }>;
+}) {
   const session = await auth();
   if (!session?.user?.id) redirect('/');
+  const { companyId } = await searchParams;
 
-  const jobs = await prisma.job.findMany({
-    where: { userId: session.user.id },
-    include: { company: true },
-    orderBy: [{ isNew: 'desc' }, { matchScore: 'desc' }, { createdAt: 'desc' }],
-  });
+  const [selectedCompany, jobs] = await Promise.all([
+    companyId
+      ? prisma.company.findFirst({
+          where: { id: companyId, userId: session.user.id },
+          select: { id: true, name: true },
+        })
+      : null,
+    prisma.job.findMany({
+      where: { userId: session.user.id, ...(companyId ? { companyId } : {}) },
+      include: { company: true },
+      orderBy: [{ isNew: 'desc' }, { matchScore: 'desc' }, { createdAt: 'desc' }],
+    }),
+  ]);
+
+  if (companyId && !selectedCompany) redirect('/jobs');
 
   return (
     <div>
-      <PageHeader title="Jobs" eyebrow="Discovered and saved roles">
+      <PageHeader title="Jobs" eyebrow={selectedCompany ? `Roles for ${selectedCompany.name}` : 'Discovered and saved roles'}>
+        {selectedCompany ? (
+          <Button asChild variant="outline">
+            <Link href="/jobs">All jobs</Link>
+          </Button>
+        ) : null}
         <Button asChild>
           <Link href="/jobs/new">
             <Plus className="h-4 w-4" />
@@ -89,10 +109,14 @@ export default async function JobsPage() {
         </div>
       ) : (
         <EmptyState
-          title="No jobs yet"
-          body="Add a role manually or scan a company careers page to start building the opportunity list."
-          href="/jobs/new"
-          action="Add job"
+          title={selectedCompany ? 'No jobs for this company yet' : 'No jobs yet'}
+          body={
+            selectedCompany
+              ? 'Run a company scan again or add a role manually when you find one.'
+              : 'Add a role manually or scan a company careers page to start building the opportunity list.'
+          }
+          href={selectedCompany ? `/companies/${selectedCompany.id}` : '/jobs/new'}
+          action={selectedCompany ? 'Back to company' : 'Add job'}
         />
       )}
     </div>

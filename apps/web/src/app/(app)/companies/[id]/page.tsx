@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import type React from 'react';
 import { notFound, redirect } from 'next/navigation';
 import { ExternalLink, Radar, Trash2 } from 'lucide-react';
@@ -9,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { auth } from '@/server/auth';
 import { CompanyForm } from '@/features/nextrole/forms';
 import { deleteCompany, scanCompany } from '@/features/nextrole/actions';
-import { formatDate, PageHeader, scoreTone, StatusBadge } from '@/features/nextrole/ui';
+import { formatDate, PageHeader, StatusBadge } from '@/features/nextrole/ui';
 
 export default async function CompanyDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
@@ -19,7 +18,7 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
   const company = await prisma.company.findFirst({
     where: { id, userId: session.user.id },
     include: {
-      jobs: { orderBy: { createdAt: 'desc' }, take: 10 },
+      jobs: { orderBy: { createdAt: 'desc' } },
       applications: { include: { job: true }, orderBy: { updatedAt: 'desc' }, take: 8 },
       scanHistory: { orderBy: { scannedAt: 'desc' }, take: 6 },
       hiringSignals: { orderBy: [{ signalDate: 'desc' }, { createdAt: 'desc' }], take: 6 },
@@ -65,15 +64,35 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
         <div className="grid gap-6">
           <Section title="Jobs">
             {company.jobs.length ? (
-              company.jobs.map((job) => (
-                <Link key={job.id} href="/jobs" className="flex items-center justify-between gap-4 border-b px-4 py-3 last:border-b-0 hover:bg-muted/50">
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium">{job.title}</span>
-                    <span className="text-muted-foreground block truncate text-xs">{job.location ?? job.source ?? 'No location'}</span>
-                  </span>
-                  <StatusBadge value={job.matchScore == null ? job.status : `${job.matchScore}%`} tone={scoreTone(job.matchScore)} />
-                </Link>
-              ))
+              company.jobs.map((job) => {
+                const row = (
+                  <>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium">{job.title}</span>
+                      <span className="text-muted-foreground block truncate text-xs">{job.location ?? job.source ?? 'No location'}</span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-2">
+                      {job.url ? <ExternalLink className="text-muted-foreground h-4 w-4" /> : null}
+                    </span>
+                  </>
+                );
+
+                return job.url ? (
+                  <a
+                    key={job.id}
+                    href={job.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-between gap-4 border-b px-4 py-3 last:border-b-0 hover:bg-muted/50"
+                  >
+                    {row}
+                  </a>
+                ) : (
+                  <div key={job.id} className="flex items-center justify-between gap-4 border-b px-4 py-3 last:border-b-0">
+                    {row}
+                  </div>
+                );
+              })
             ) : (
               <p className="text-muted-foreground p-4 text-sm">No jobs tracked for this company yet.</p>
             )}

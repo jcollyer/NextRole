@@ -47,6 +47,14 @@ const categoryWeights = new Map([
   ['healthcare ai', 9],
 ]);
 
+type ScannedJobLink = {
+  title: string;
+  url: string;
+  location?: string | null;
+  description?: string | null;
+  source?: string;
+};
+
 async function requireUserId() {
   const session = await auth();
   if (!session?.user?.id) redirect('/');
@@ -319,14 +327,27 @@ export async function scanAllCompanies() {
   const companies = await prisma.company.findMany({
     where: { userId, careersUrl: { not: null }, status: { not: CompanyStatus.ARCHIVED } },
     select: { id: true },
-    take: 25,
   });
 
+  if (!companies.length) {
+    redirect('/companies?scanResult=none');
+  }
+
+  const summary = {
+    scanned: 0,
+    jobsFound: 0,
+    failed: 0,
+  };
+
   for (const company of companies) {
-    await scanCompanyById(userId, company.id);
+    const result = await scanCompanyById(userId, company.id);
+    if (result.scanned) summary.scanned += 1;
+    summary.jobsFound += result.jobsFound;
+    if (result.failed) summary.failed += 1;
   }
 
   revalidateWorkspace();
+  redirect(`/companies?scanResult=complete&scanned=${summary.scanned}&found=${summary.jobsFound}&failed=${summary.failed}`);
 }
 
 export async function importCompanies(formData: FormData) {
@@ -382,20 +403,11 @@ export async function importCompanies(formData: FormData) {
 
 async function scanCompanyById(userId: string, companyId: string) {
   const company = await prisma.company.findFirst({ where: { id: companyId, userId } });
-  if (!company?.careersUrl) return;
+  if (!company?.careersUrl) return { scanned: false, jobsFound: 0, failed: false };
+  const careersUrl = company.careersUrl;
 
   try {
-    const response = await fetch(company.careersUrl, {
-      headers: { 'user-agent': 'NextRole manual job checker; contact: local-user' },
-      next: { revalidate: 0 },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Careers page returned ${response.status}`);
-    }
-
-    const html = await response.text();
-    const links = extractJobLinks(html, company.careersUrl).slice(0, 30);
+    const links = (await discoverJobLinks({ name: company.name, website: company.website, careersUrl })).slice(0, 30);
     let jobsFound = 0;
 
     for (const link of links) {
@@ -415,7 +427,9 @@ async function scanCompanyById(userId: string, companyId: string) {
           companyId,
           title: link.title,
           url: link.url,
-          source: 'Careers page scan',
+          location: link.location,
+          description: link.description,
+          source: link.source ?? 'Careers page scan',
           status: JobStatus.NEW,
           isNew: true,
         },
@@ -427,18 +441,41 @@ async function scanCompanyById(userId: string, companyId: string) {
       prisma.company.update({ where: { id: companyId, userId }, data: { lastScannedAt: new Date() } }),
       prisma.scanHistory.create({ data: { userId, companyId, status: ScanStatus.SUCCESS, jobsFound } }),
     ]);
+    return { scanned: true, jobsFound, failed: false };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown scan failure';
-    await prisma.scanHistory.create({
-      data: { userId, companyId, status: ScanStatus.FAILED, errorMessage: message },
-    });
+    await prisma.$transaction([
+      prisma.company.update({ where: { id: companyId, userId }, data: { lastScannedAt: new Date() } }),
+      prisma.scanHistory.create({
+        data: { userId, companyId, status: ScanStatus.FAILED, errorMessage: message },
+      }),
+    ]);
+    return { scanned: true, jobsFound: 0, failed: true };
   }
 }
 
-function extractJobLinks(html: string, baseUrl: string) {
+async function discoverJobLinks(company: { name: string; website: string | null; careersUrl: string }) {
+  const response = await fetch(company.careersUrl, {
+    headers: { 'user-agent': 'NextRole manual job checker; contact: local-user' },
+    signal: AbortSignal.timeout(12000),
+    next: { revalidate: 0 },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Careers page returned ${response.status}`);
+  }
+
+  const html = await response.text();
+  const links = extractJobLinks(html, company.careersUrl);
+  const greenhouseLinks = await fetchGreenhouseJobLinks(company, html, links);
+
+  return dedupeJobLinks([...links, ...greenhouseLinks]);
+}
+
+function extractJobLinks(html: string, baseUrl: string): ScannedJobLink[] {
   const anchors = html.matchAll(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi);
   const seen = new Set<string>();
-  const matches: Array<{ title: string; url: string }> = [];
+  const matches: ScannedJobLink[] = [];
 
   for (const anchor of anchors) {
     const href = anchor[1];
@@ -459,6 +496,114 @@ function extractJobLinks(html: string, baseUrl: string) {
   }
 
   return matches;
+}
+
+async function fetchGreenhouseJobLinks(
+  company: { name: string; website: string | null; careersUrl: string },
+  html: string,
+  existingLinks: ScannedJobLink[],
+) {
+  const tokens = greenhouseBoardTokens(company, html, existingLinks);
+  const results: ScannedJobLink[] = [];
+
+  for (const token of tokens) {
+    try {
+      const response = await fetch(`https://boards-api.greenhouse.io/v1/boards/${token}/jobs?content=true`, {
+        headers: { 'user-agent': 'NextRole manual job checker; contact: local-user' },
+        signal: AbortSignal.timeout(8000),
+        next: { revalidate: 0 },
+      });
+
+      if (!response.ok) continue;
+
+      const data = (await response.json()) as GreenhouseJobsResponse;
+      for (const job of data.jobs ?? []) {
+        if (!job.title || !job.id) continue;
+        const location = job.location?.name ?? null;
+        const description = job.content ? stripTags(job.content).replace(/\s+/g, ' ').trim() : null;
+        const haystack = `${job.title} ${location ?? ''} ${description ?? ''} ${job.departments?.map((department) => department.name).join(' ') ?? ''}`;
+        if (!hasRoleKeyword(haystack)) continue;
+
+        results.push({
+          title: job.title,
+          url: job.absolute_url || `https://job-boards.greenhouse.io/${token}/jobs/${job.id}`,
+          location,
+          description,
+          source: 'Greenhouse job board',
+        });
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return results;
+}
+
+type GreenhouseJobsResponse = {
+  jobs?: Array<{
+    id?: number;
+    title?: string;
+    absolute_url?: string;
+    content?: string;
+    location?: { name?: string };
+    departments?: Array<{ name?: string }>;
+  }>;
+};
+
+function greenhouseBoardTokens(
+  company: { name: string; website: string | null; careersUrl: string },
+  html: string,
+  existingLinks: ScannedJobLink[],
+) {
+  const tokens = new Set<string>();
+  const sources = [company.careersUrl, company.website ?? '', html, ...existingLinks.map((link) => link.url)];
+
+  for (const source of sources) {
+    for (const match of source.matchAll(/(?:job-boards|boards)\.greenhouse\.io\/([a-z0-9_-]+)/gi)) {
+      const token = match[1];
+      if (token) tokens.add(token.toLowerCase());
+    }
+    for (const match of source.matchAll(/boards-api\.greenhouse\.io\/v1\/boards\/([a-z0-9_-]+)/gi)) {
+      const token = match[1];
+      if (token) tokens.add(token.toLowerCase());
+    }
+  }
+
+  const staticCareersText = stripTags(html).toLowerCase();
+  const looksLikeDynamicJobsPage =
+    staticCareersText.includes('all openings') &&
+    staticCareersText.includes('department name') &&
+    staticCareersText.includes('role name');
+
+  if (looksLikeDynamicJobsPage) {
+    const slug = company.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (slug) {
+      tokens.add(slug);
+      tokens.add(`${slug}work`);
+    }
+  }
+
+  return Array.from(tokens);
+}
+
+function dedupeJobLinks(links: ScannedJobLink[]) {
+  const seen = new Set<string>();
+  const unique: ScannedJobLink[] = [];
+
+  for (const link of links) {
+    const key = `${link.url.toLowerCase()}::${link.title.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(link);
+  }
+
+  return unique;
+}
+
+function hasRoleKeyword(value: string) {
+  const haystack = value.toLowerCase();
+  return roleKeywords.some((keyword) => haystack.includes(keyword));
 }
 
 function scoreRole(input: {
