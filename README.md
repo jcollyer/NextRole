@@ -21,7 +21,6 @@ NextRole is a personal job-search CRM for tracking target companies, discovering
 - Auth.js with Prisma adapter and database sessions.
 - PostgreSQL and Prisma.
 - tRPC package scaffold retained for future typed API expansion.
-- Expo mobile scaffold retained from the starter, not yet reworked for NextRole.
 
 ## Getting Started
 
@@ -58,7 +57,7 @@ NextRole is a personal job-search CRM for tracking target companies, discovering
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Start the Next.js web app |
-| `npm run build` | Build all apps via Turbo |
+| `npm run build` | Build the web app and shared packages via Turbo |
 | `npm run typecheck` | Typecheck every workspace |
 | `npm run db:migrate` | Create/apply a Prisma migration |
 | `npm run db:push` | Push schema changes directly |

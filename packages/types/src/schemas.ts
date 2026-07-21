@@ -1,9 +1,9 @@
 import { z } from 'zod';
 
 /**
- * Shared validation schemas. These live in their own package so the API
- * layer (server) and both clients (web + mobile) validate against the exact
- * same rules. Add new schemas here as your app grows.
+ * Shared validation schemas. These live in their own package so the API layer
+ * and web app validate against the same rules. Add new schemas here as your
+ * app grows.
  */
 
 /** Payload for updating the signed-in user's profile. */

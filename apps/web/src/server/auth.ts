@@ -44,9 +44,7 @@ export const { handlers, signIn, signOut, auth }: NextAuthResult = NextAuth({
   session: {
     strategy: 'database',
     // 90 days. Each request within updateAge (24h, default) slides the expiry
-    // back out to 90d, so active users effectively never get signed out. The
-    // mobile bridge reads this same DB session row, so this one setting drives
-    // both web and mobile session lifetime.
+    // back out to 90d, so active users effectively never get signed out.
     maxAge: 60 * 60 * 24 * 90,
   },
   pages: {

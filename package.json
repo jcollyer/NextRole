@@ -3,12 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "workspaces": [
-    "apps/*",
+    "apps/web",
     "packages/*"
   ],
   "scripts": {
     "dev": "npm --workspace=@saas/web run dev",
-    "mobile": "npm --workspace=@saas/mobile exec -- expo start --clear",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
