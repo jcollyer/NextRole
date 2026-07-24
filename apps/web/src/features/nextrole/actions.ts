@@ -407,40 +407,66 @@ async function scanCompanyById(userId: string, companyId: string) {
   const careersUrl = company.careersUrl;
 
   try {
-    const links = (await discoverJobLinks({ name: company.name, website: company.website, careersUrl })).slice(0, 30);
-    let jobsFound = 0;
+    const links = await discoverJobLinks({ name: company.name, website: company.website, careersUrl });
+    const jobsFound = links.length;
+    const scannedAt = new Date();
 
-    for (const link of links) {
-      const duplicate = await prisma.job.findFirst({
-        where: {
-          userId,
-          companyId,
-          OR: [{ url: link.url }, { title: { equals: link.title, mode: 'insensitive' } }],
-        },
-        select: { id: true },
+    await prisma.$transaction(async (tx) => {
+      await tx.job.updateMany({
+        where: { userId, companyId, discoveredByScan: true },
+        data: { isCurrent: false },
       });
-      if (duplicate) continue;
 
-      await prisma.job.create({
-        data: {
-          userId,
-          companyId,
-          title: link.title,
-          url: link.url,
-          location: link.location,
-          description: link.description,
-          source: link.source ?? 'Careers page scan',
-          status: JobStatus.NEW,
-          isNew: true,
-        },
+      for (const link of links) {
+        const existing = await tx.job.findFirst({
+          where: {
+            userId,
+            companyId,
+            OR: [{ url: link.url }, { title: { equals: link.title, mode: 'insensitive' } }],
+          },
+          select: { id: true },
+        });
+
+        if (existing) {
+          await tx.job.update({
+            where: { id: existing.id },
+            data: {
+              title: link.title,
+              url: link.url,
+              location: link.location,
+              description: link.description,
+              source: link.source ?? 'Careers page scan',
+              discoveredByScan: true,
+              isCurrent: true,
+            },
+          });
+        } else {
+          await tx.job.create({
+            data: {
+              userId,
+              companyId,
+              title: link.title,
+              url: link.url,
+              location: link.location,
+              description: link.description,
+              source: link.source ?? 'Careers page scan',
+              status: JobStatus.NEW,
+              isNew: true,
+              discoveredByScan: true,
+              isCurrent: true,
+            },
+          });
+        }
+      }
+
+      await tx.company.update({
+        where: { id: companyId, userId },
+        data: { lastScannedAt: scannedAt },
       });
-      jobsFound += 1;
-    }
-
-    await prisma.$transaction([
-      prisma.company.update({ where: { id: companyId, userId }, data: { lastScannedAt: new Date() } }),
-      prisma.scanHistory.create({ data: { userId, companyId, status: ScanStatus.SUCCESS, jobsFound } }),
-    ]);
+      await tx.scanHistory.create({
+        data: { userId, companyId, status: ScanStatus.SUCCESS, jobsFound, scannedAt },
+      });
+    });
     return { scanned: true, jobsFound, failed: false };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown scan failure';

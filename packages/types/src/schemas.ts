@@ -12,6 +12,22 @@ export const updateProfileSchema = z.object({
 });
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 
+const preferenceList = z.array(z.string().trim().min(1).max(80)).max(30);
+
+export const updateJobPreferencesSchema = z.object({
+  workArrangements: z.array(z.enum(['REMOTE', 'HYBRID', 'ONSITE'])).max(3),
+  preferredLocations: preferenceList,
+  roleFamilies: z
+    .array(z.enum(['FRONTEND', 'FULL_STACK', 'PRODUCT_ENGINEERING', 'BACKEND', 'MOBILE', 'DESIGN']))
+    .max(6),
+  includedTitleTerms: preferenceList,
+  excludedTitleTerms: preferenceList,
+  seniorityLevels: z
+    .array(z.enum(['MID', 'SENIOR', 'STAFF', 'PRINCIPAL', 'LEAD', 'MANAGER']))
+    .max(6),
+});
+export type UpdateJobPreferencesInput = z.infer<typeof updateJobPreferencesSchema>;
+
 /** Payload for permanently deleting the signed-in user's account. */
 export const deleteAccountSchema = z.object({
   // Must match the account email exactly (checked case-insensitively on the

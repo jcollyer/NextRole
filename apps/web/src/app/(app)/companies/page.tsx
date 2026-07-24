@@ -23,7 +23,13 @@ export default async function CompaniesPage({
   const companies = await prisma.company.findMany({
     where: { userId: session.user.id },
     include: {
-      _count: { select: { jobs: true, applications: true, hiringSignals: true } },
+      _count: {
+        select: {
+          jobs: { where: { OR: [{ discoveredByScan: false }, { isCurrent: true }] } },
+          applications: true,
+          hiringSignals: true,
+        },
+      },
       scanHistory: {
         orderBy: { scannedAt: 'desc' },
         take: 1,
@@ -63,7 +69,7 @@ export default async function CompaniesPage({
           )}
         >
           {scanResult === 'complete'
-            ? `Scan complete: ${scanned ?? 0} companies scanned, ${found ?? 0} new jobs found, ${failed ?? 0} failed.`
+            ? `Scan complete: ${scanned ?? 0} companies scanned, ${found ?? 0} total jobs found, ${failed ?? 0} failed.`
             : 'No companies with careers URLs are ready to scan yet.'}
         </div>
       ) : null}

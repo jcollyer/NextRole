@@ -26,7 +26,11 @@ export default async function JobsPage({
         })
       : null,
     prisma.job.findMany({
-      where: { userId: session.user.id, ...(companyId ? { companyId } : {}) },
+      where: {
+        userId: session.user.id,
+        ...(companyId ? { companyId } : {}),
+        OR: [{ discoveredByScan: false }, { isCurrent: true }],
+      },
       include: { company: true },
       orderBy: [{ isNew: 'desc' }, { matchScore: 'desc' }, { createdAt: 'desc' }],
     }),
