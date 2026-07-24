@@ -9,6 +9,7 @@ import {
   CompanyStatus,
   HiringSignalType,
   JobStatus,
+  Prisma,
   ScanStatus,
   prisma,
 } from '@saas/db';
@@ -410,25 +411,33 @@ async function scanCompanyById(userId: string, companyId: string) {
     const links = await discoverJobLinks({ name: company.name, website: company.website, careersUrl });
     const jobsFound = links.length;
     const scannedAt = new Date();
-
-    await prisma.$transaction(async (tx) => {
-      await tx.job.updateMany({
+    const existingJobs = await prisma.job.findMany({
+      where: { userId, companyId },
+      select: { id: true, title: true, url: true },
+    });
+    const existingByUrl = new Map(
+      existingJobs
+        .filter((job): job is typeof job & { url: string } => Boolean(job.url))
+        .map((job) => [job.url.toLowerCase(), job]),
+    );
+    const existingByTitle = new Map(
+      existingJobs.map((job) => [job.title.toLowerCase(), job]),
+    );
+    const operations: Prisma.PrismaPromise<unknown>[] = [
+      prisma.job.updateMany({
         where: { userId, companyId, discoveredByScan: true },
         data: { isCurrent: false },
-      });
+      }),
+    ];
 
-      for (const link of links) {
-        const existing = await tx.job.findFirst({
-          where: {
-            userId,
-            companyId,
-            OR: [{ url: link.url }, { title: { equals: link.title, mode: 'insensitive' } }],
-          },
-          select: { id: true },
-        });
+    for (const link of links) {
+      const existing =
+        existingByUrl.get(link.url.toLowerCase()) ??
+        existingByTitle.get(link.title.toLowerCase());
 
-        if (existing) {
-          await tx.job.update({
+      if (existing) {
+        operations.push(
+          prisma.job.update({
             where: { id: existing.id },
             data: {
               title: link.title,
@@ -439,9 +448,11 @@ async function scanCompanyById(userId: string, companyId: string) {
               discoveredByScan: true,
               isCurrent: true,
             },
-          });
-        } else {
-          await tx.job.create({
+          }),
+        );
+      } else {
+        operations.push(
+          prisma.job.create({
             data: {
               userId,
               companyId,
@@ -455,18 +466,22 @@ async function scanCompanyById(userId: string, companyId: string) {
               discoveredByScan: true,
               isCurrent: true,
             },
-          });
-        }
+          }),
+        );
       }
+    }
 
-      await tx.company.update({
+    operations.push(
+      prisma.company.update({
         where: { id: companyId, userId },
         data: { lastScannedAt: scannedAt },
-      });
-      await tx.scanHistory.create({
+      }),
+      prisma.scanHistory.create({
         data: { userId, companyId, status: ScanStatus.SUCCESS, jobsFound, scannedAt },
-      });
-    });
+      }),
+    );
+
+    await prisma.$transaction(operations);
     return { scanned: true, jobsFound, failed: false };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown scan failure';
@@ -614,13 +629,16 @@ function greenhouseBoardTokens(
 }
 
 function dedupeJobLinks(links: ScannedJobLink[]) {
-  const seen = new Set<string>();
+  const seenUrls = new Set<string>();
+  const seenTitles = new Set<string>();
   const unique: ScannedJobLink[] = [];
 
   for (const link of links) {
-    const key = `${link.url.toLowerCase()}::${link.title.toLowerCase()}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    const url = link.url.toLowerCase();
+    const title = link.title.toLowerCase();
+    if (seenUrls.has(url) || seenTitles.has(title)) continue;
+    seenUrls.add(url);
+    seenTitles.add(title);
     unique.push(link);
   }
 

@@ -1,6 +1,6 @@
 import type React from 'react';
 import { notFound, redirect } from 'next/navigation';
-import { ExternalLink, Radar, Trash2 } from 'lucide-react';
+import { ExternalLink, Trash2 } from 'lucide-react';
 
 import { prisma } from '@saas/db';
 
@@ -10,6 +10,7 @@ import { CompanyForm } from '@/features/nextrole/forms';
 import { deleteCompany, scanCompany } from '@/features/nextrole/actions';
 import { formatDate, PageHeader, StatusBadge } from '@/features/nextrole/ui';
 import { jobMatchesPreferences } from '@/features/nextrole/jobPreferences';
+import { ScanCompanyButton } from '@/features/nextrole/ScanCompanyButton';
 
 export default async function CompanyDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
@@ -92,10 +93,7 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
         ) : null}
         <form action={scanCompany}>
           <input type="hidden" name="companyId" value={company.id} />
-          <Button type="submit" variant="outline" disabled={!company.careersUrl}>
-            <Radar className="h-4 w-4" />
-            Scan company
-          </Button>
+          <ScanCompanyButton disabled={!company.careersUrl} />
         </form>
         <form action={deleteCompany}>
           <input type="hidden" name="id" value={company.id} />
