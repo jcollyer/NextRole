@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { auth } from '@/server/auth';
 import { scanAllCompanies, scanCompany } from '@/features/nextrole/actions';
+import { jobMatchesPreferences } from '@/features/nextrole/jobPreferences';
 import { ScanAllCompaniesButton } from '@/features/nextrole/ScanAllCompaniesButton';
 import { EmptyState, formatDate, PageHeader, StatusBadge } from '@/features/nextrole/ui';
 
@@ -20,23 +21,40 @@ export default async function CompaniesPage({
   if (!session?.user?.id) redirect('/');
   const { imported, scanResult, scanned, found, failed } = await searchParams;
 
-  const companies = await prisma.company.findMany({
-    where: { userId: session.user.id },
-    include: {
-      _count: {
-        select: {
-          jobs: { where: { OR: [{ discoveredByScan: false }, { isCurrent: true }] } },
-          applications: true,
-          hiringSignals: true,
+  const [preferences, companies] = await Promise.all([
+    prisma.user.findUniqueOrThrow({
+      where: { id: session.user.id },
+      select: {
+        workArrangements: true,
+        preferredLocations: true,
+        roleFamilies: true,
+        includedTitleTerms: true,
+        excludedTitleTerms: true,
+        seniorityLevels: true,
+      },
+    }),
+    prisma.company.findMany({
+      where: { userId: session.user.id },
+      include: {
+        jobs: {
+          where: { discoveredByScan: true, isCurrent: true },
+          select: { title: true, location: true, remotePolicy: true },
+        },
+        _count: {
+          select: {
+            jobs: { where: { OR: [{ discoveredByScan: false }, { isCurrent: true }] } },
+            applications: true,
+            hiringSignals: true,
+          },
+        },
+        scanHistory: {
+          orderBy: { scannedAt: 'desc' },
+          take: 1,
         },
       },
-      scanHistory: {
-        orderBy: { scannedAt: 'desc' },
-        take: 1,
-      },
-    },
-    orderBy: [{ priority: 'desc' }, { updatedAt: 'desc' }],
-  });
+      orderBy: [{ priority: 'desc' }, { updatedAt: 'desc' }],
+    }),
+  ]);
   const scannableCompanies = companies.filter((company) => company.careersUrl).length;
 
   return (
@@ -86,14 +104,17 @@ export default async function CompaniesPage({
           <div className="divide-y">
             {companies.map((company) => {
               const latestScan = company.scanHistory[0];
-              const hasFoundJobs = latestScan?.status === 'SUCCESS' && latestScan.jobsFound > 0;
+              const matchingJobs = company.jobs.filter((job) =>
+                jobMatchesPreferences(job, preferences),
+              ).length;
+              const hasMatchingJobs = latestScan?.status === 'SUCCESS' && matchingJobs > 0;
 
               return (
                 <div
                   key={company.id}
                   className={cn(
                     'grid gap-3 px-4 py-4 lg:grid-cols-[minmax(220px,1.3fr)_minmax(140px,0.8fr)_110px_minmax(220px,1.1fr)_140px] lg:items-center',
-                    hasFoundJobs && 'bg-emerald-50/70 ring-1 ring-inset ring-emerald-200',
+                    hasMatchingJobs && 'bg-emerald-50/70 ring-1 ring-inset ring-emerald-200',
                   )}
                 >
                   <Link href={`/companies/${company.id}`} className="min-w-0">
@@ -111,12 +132,12 @@ export default async function CompaniesPage({
                           <StatusBadge value={latestScan.status} tone={latestScan.status === 'SUCCESS' ? 'good' : 'warn'} />
                           <span className="text-muted-foreground text-sm">{formatDate(latestScan.scannedAt)}</span>
                         </div>
-                        <p className={cn('truncate text-xs', hasFoundJobs ? 'font-medium text-emerald-700' : 'text-muted-foreground')}>
+                        <p className={cn('truncate text-xs', hasMatchingJobs ? 'font-medium text-emerald-700' : 'text-muted-foreground')}>
                           {latestScan.status === 'SUCCESS'
-                            ? `${latestScan.jobsFound} jobs found`
+                            ? `${matchingJobs} matching · ${latestScan.jobsFound} total found`
                             : latestScan.errorMessage ?? 'Scan failed'}
                         </p>
-                        {hasFoundJobs ? (
+                        {hasMatchingJobs ? (
                           <Link href={`/jobs?companyId=${company.id}`} className="text-xs font-medium text-emerald-700 hover:underline">
                             View job descriptions
                           </Link>

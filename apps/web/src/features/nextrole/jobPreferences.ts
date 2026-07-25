@@ -14,7 +14,7 @@ type PreferenceJob = {
 };
 
 const familyTerms: Record<string, string[]> = {
-  FRONTEND: ['frontend', 'front-end', 'ui engineer', 'web engineer', 'react'],
+  FRONTEND: ['frontend', 'front-end', 'ui engineer', 'web engineer', 'react', 'next.js', 'nextjs'],
   FULL_STACK: ['full stack', 'full-stack'],
   PRODUCT_ENGINEERING: ['product engineer', 'product software engineer'],
   BACKEND: ['backend', 'back-end', 'server engineer', 'platform engineer'],
