@@ -15,11 +15,18 @@ import { EmptyState, formatDate, PageHeader, StatusBadge } from '@/features/next
 export default async function CompaniesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ imported?: string; scanResult?: string; scanned?: string; found?: string; failed?: string }>;
+  searchParams: Promise<{
+    imported?: string;
+    scanResult?: string;
+    scanned?: string;
+    found?: string;
+    matched?: string;
+    failed?: string;
+  }>;
 }) {
   const session = await auth();
   if (!session?.user?.id) redirect('/');
-  const { imported, scanResult, scanned, found, failed } = await searchParams;
+  const { imported, scanResult, scanned, found, matched, failed } = await searchParams;
 
   const [preferences, companies] = await Promise.all([
     prisma.user.findUniqueOrThrow({
@@ -87,7 +94,7 @@ export default async function CompaniesPage({
           )}
         >
           {scanResult === 'complete'
-            ? `Scan complete: ${scanned ?? 0} companies scanned, ${found ?? 0} total jobs found, ${failed ?? 0} failed.`
+            ? `Scan complete: ${scanned ?? 0} companies scanned, ${found ?? 0} jobs found, ${matched ?? 0} matching your filters, ${failed ?? 0} failed.`
             : 'No companies with careers URLs are ready to scan yet.'}
         </div>
       ) : null}

@@ -180,7 +180,11 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
                   className="flex items-center justify-between gap-4 border-b px-4 py-3 last:border-b-0"
                 >
                   <span className="text-sm">{formatDate(scan.scannedAt)}</span>
-                  <span className="text-muted-foreground text-sm">{scan.jobsFound} jobs</span>
+                  <span className="text-muted-foreground text-sm">
+                    {scan.jobsFound} found
+                    {scan.jobsFound > 0 ? ` · ${scan.jobsMatched} match your filters` : ''}
+                    {scan.strategy ? ` · via ${scan.strategy}` : ''}
+                  </span>
                   <StatusBadge
                     value={scan.status}
                     tone={scan.status === 'SUCCESS' ? 'good' : 'warn'}

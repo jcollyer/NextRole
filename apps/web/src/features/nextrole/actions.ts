@@ -23,6 +23,8 @@ import {
   jobStatuses,
   signalTypes,
 } from './constants';
+import { jobMatchesPreferences } from './jobPreferences';
+import { discoverJobLinks } from './scanning';
 
 const roleKeywords = [
   'frontend',
@@ -47,14 +49,6 @@ const categoryWeights = new Map([
   ['ai native startups', 11],
   ['healthcare ai', 9],
 ]);
-
-type ScannedJobLink = {
-  title: string;
-  url: string;
-  location?: string | null;
-  description?: string | null;
-  source?: string;
-};
 
 async function requireUserId() {
   const session = await auth();
@@ -337,6 +331,7 @@ export async function scanAllCompanies() {
   const summary = {
     scanned: 0,
     jobsFound: 0,
+    jobsMatched: 0,
     failed: 0,
   };
 
@@ -344,11 +339,14 @@ export async function scanAllCompanies() {
     const result = await scanCompanyById(userId, company.id);
     if (result.scanned) summary.scanned += 1;
     summary.jobsFound += result.jobsFound;
+    summary.jobsMatched += result.jobsMatched;
     if (result.failed) summary.failed += 1;
   }
 
   revalidateWorkspace();
-  redirect(`/companies?scanResult=complete&scanned=${summary.scanned}&found=${summary.jobsFound}&failed=${summary.failed}`);
+  redirect(
+    `/companies?scanResult=complete&scanned=${summary.scanned}&found=${summary.jobsFound}&matched=${summary.jobsMatched}&failed=${summary.failed}`,
+  );
 }
 
 export async function importCompanies(formData: FormData) {
@@ -404,13 +402,32 @@ export async function importCompanies(formData: FormData) {
 
 async function scanCompanyById(userId: string, companyId: string) {
   const company = await prisma.company.findFirst({ where: { id: companyId, userId } });
-  if (!company?.careersUrl) return { scanned: false, jobsFound: 0, failed: false };
+  if (!company?.careersUrl) return { scanned: false, jobsFound: 0, jobsMatched: 0, failed: false };
   const careersUrl = company.careersUrl;
 
   try {
-    const links = await discoverJobLinks({ name: company.name, website: company.website, careersUrl });
+    const { links, strategy } = await discoverJobLinks({
+      name: company.name,
+      website: company.website,
+      careersUrl,
+    });
     const jobsFound = links.length;
     const scannedAt = new Date();
+    const preferences = await prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: {
+        workArrangements: true,
+        preferredLocations: true,
+        roleFamilies: true,
+        includedTitleTerms: true,
+        excludedTitleTerms: true,
+        seniorityLevels: true,
+      },
+    });
+    const jobsMatched = links.filter((link) =>
+      jobMatchesPreferences({ title: link.title, location: link.location ?? null, remotePolicy: null }, preferences),
+    ).length;
+
     const existingJobs = await prisma.job.findMany({
       where: { userId, companyId },
       select: { id: true, title: true, url: true },
@@ -423,6 +440,9 @@ async function scanCompanyById(userId: string, companyId: string) {
     const existingByTitle = new Map(
       existingJobs.map((job) => [job.title.toLowerCase(), job]),
     );
+    // A job may only be claimed by one link, otherwise two same-titled roles both resolve
+    // to the same row and the transaction quietly writes one of them over the other.
+    const claimed = new Set<string>();
     const operations: Prisma.PrismaPromise<unknown>[] = [
       prisma.job.updateMany({
         where: { userId, companyId, discoveredByScan: true },
@@ -431,9 +451,11 @@ async function scanCompanyById(userId: string, companyId: string) {
     ];
 
     for (const link of links) {
-      const existing =
-        existingByUrl.get(link.url.toLowerCase()) ??
-        existingByTitle.get(link.title.toLowerCase());
+      const byUrl = existingByUrl.get(link.url.toLowerCase());
+      const byTitle = existingByTitle.get(link.title.toLowerCase());
+      const candidate = byUrl ?? byTitle;
+      const existing = candidate && !claimed.has(candidate.id) ? candidate : undefined;
+      if (existing) claimed.add(existing.id);
 
       if (existing) {
         operations.push(
@@ -477,12 +499,22 @@ async function scanCompanyById(userId: string, companyId: string) {
         data: { lastScannedAt: scannedAt },
       }),
       prisma.scanHistory.create({
-        data: { userId, companyId, status: ScanStatus.SUCCESS, jobsFound, scannedAt },
+        data: {
+          userId,
+          companyId,
+          // EMPTY separates "this company has nothing open" from a scraper that broke
+          // silently, which a plain SUCCESS with zero jobs could not express.
+          status: jobsFound ? ScanStatus.SUCCESS : ScanStatus.EMPTY,
+          jobsFound,
+          jobsMatched,
+          strategy,
+          scannedAt,
+        },
       }),
     );
 
     await prisma.$transaction(operations);
-    return { scanned: true, jobsFound, failed: false };
+    return { scanned: true, jobsFound, jobsMatched, failed: false };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown scan failure';
     await prisma.$transaction([
@@ -491,163 +523,8 @@ async function scanCompanyById(userId: string, companyId: string) {
         data: { userId, companyId, status: ScanStatus.FAILED, errorMessage: message },
       }),
     ]);
-    return { scanned: true, jobsFound: 0, failed: true };
+    return { scanned: true, jobsFound: 0, jobsMatched: 0, failed: true };
   }
-}
-
-async function discoverJobLinks(company: { name: string; website: string | null; careersUrl: string }) {
-  const response = await fetch(company.careersUrl, {
-    headers: { 'user-agent': 'NextRole manual job checker; contact: local-user' },
-    signal: AbortSignal.timeout(12000),
-    next: { revalidate: 0 },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Careers page returned ${response.status}`);
-  }
-
-  const html = await response.text();
-  const links = extractJobLinks(html, company.careersUrl);
-  const greenhouseLinks = await fetchGreenhouseJobLinks(company, html, links);
-
-  return dedupeJobLinks([...links, ...greenhouseLinks]);
-}
-
-function extractJobLinks(html: string, baseUrl: string): ScannedJobLink[] {
-  const anchors = html.matchAll(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi);
-  const seen = new Set<string>();
-  const matches: ScannedJobLink[] = [];
-
-  for (const anchor of anchors) {
-    const href = anchor[1];
-    const content = anchor[2];
-    if (!href || !content) continue;
-    const label = stripTags(content).replace(/\s+/g, ' ').trim();
-    const haystack = `${href} ${label}`.toLowerCase();
-    if (!roleKeywords.some((keyword) => haystack.includes(keyword))) continue;
-
-    try {
-      const url = new URL(href, baseUrl).toString();
-      if (seen.has(url)) continue;
-      seen.add(url);
-      matches.push({ title: label || inferTitleFromUrl(url), url });
-    } catch {
-      continue;
-    }
-  }
-
-  return matches;
-}
-
-async function fetchGreenhouseJobLinks(
-  company: { name: string; website: string | null; careersUrl: string },
-  html: string,
-  existingLinks: ScannedJobLink[],
-) {
-  const tokens = greenhouseBoardTokens(company, html, existingLinks);
-  const results: ScannedJobLink[] = [];
-
-  for (const token of tokens) {
-    try {
-      const response = await fetch(`https://boards-api.greenhouse.io/v1/boards/${token}/jobs?content=true`, {
-        headers: { 'user-agent': 'NextRole manual job checker; contact: local-user' },
-        signal: AbortSignal.timeout(8000),
-        next: { revalidate: 0 },
-      });
-
-      if (!response.ok) continue;
-
-      const data = (await response.json()) as GreenhouseJobsResponse;
-      for (const job of data.jobs ?? []) {
-        if (!job.title || !job.id) continue;
-        const location = job.location?.name ?? null;
-        const description = job.content ? stripTags(job.content).replace(/\s+/g, ' ').trim() : null;
-        const haystack = `${job.title} ${location ?? ''} ${description ?? ''} ${job.departments?.map((department) => department.name).join(' ') ?? ''}`;
-        if (!hasRoleKeyword(haystack)) continue;
-
-        results.push({
-          title: job.title,
-          url: job.absolute_url || `https://job-boards.greenhouse.io/${token}/jobs/${job.id}`,
-          location,
-          description,
-          source: 'Greenhouse job board',
-        });
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return results;
-}
-
-type GreenhouseJobsResponse = {
-  jobs?: Array<{
-    id?: number;
-    title?: string;
-    absolute_url?: string;
-    content?: string;
-    location?: { name?: string };
-    departments?: Array<{ name?: string }>;
-  }>;
-};
-
-function greenhouseBoardTokens(
-  company: { name: string; website: string | null; careersUrl: string },
-  html: string,
-  existingLinks: ScannedJobLink[],
-) {
-  const tokens = new Set<string>();
-  const sources = [company.careersUrl, company.website ?? '', html, ...existingLinks.map((link) => link.url)];
-
-  for (const source of sources) {
-    for (const match of source.matchAll(/(?:job-boards|boards)\.greenhouse\.io\/([a-z0-9_-]+)/gi)) {
-      const token = match[1];
-      if (token) tokens.add(token.toLowerCase());
-    }
-    for (const match of source.matchAll(/boards-api\.greenhouse\.io\/v1\/boards\/([a-z0-9_-]+)/gi)) {
-      const token = match[1];
-      if (token) tokens.add(token.toLowerCase());
-    }
-  }
-
-  const staticCareersText = stripTags(html).toLowerCase();
-  const looksLikeDynamicJobsPage =
-    staticCareersText.includes('all openings') &&
-    staticCareersText.includes('department name') &&
-    staticCareersText.includes('role name');
-
-  if (looksLikeDynamicJobsPage) {
-    const slug = company.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (slug) {
-      tokens.add(slug);
-      tokens.add(`${slug}work`);
-    }
-  }
-
-  return Array.from(tokens);
-}
-
-function dedupeJobLinks(links: ScannedJobLink[]) {
-  const seenUrls = new Set<string>();
-  const seenTitles = new Set<string>();
-  const unique: ScannedJobLink[] = [];
-
-  for (const link of links) {
-    const url = link.url.toLowerCase();
-    const title = link.title.toLowerCase();
-    if (seenUrls.has(url) || seenTitles.has(title)) continue;
-    seenUrls.add(url);
-    seenTitles.add(title);
-    unique.push(link);
-  }
-
-  return unique;
-}
-
-function hasRoleKeyword(value: string) {
-  const haystack = value.toLowerCase();
-  return roleKeywords.some((keyword) => haystack.includes(keyword));
 }
 
 function scoreRole(input: {
@@ -709,11 +586,3 @@ function normalizeCompanyStatus(value: string | null) {
   return CompanyStatus.TRACKING;
 }
 
-function stripTags(value: string) {
-  return value.replace(/<[^>]*>/g, ' ');
-}
-
-function inferTitleFromUrl(url: string) {
-  const segment = new URL(url).pathname.split('/').filter(Boolean).at(-1) ?? 'New role';
-  return segment.replaceAll('-', ' ').replaceAll('_', ' ');
-}

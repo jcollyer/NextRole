@@ -131,6 +131,7 @@ enum ApplicationStatus {
 
 enum ScanStatus {
   SUCCESS
+  EMPTY
   FAILED
 }
 
@@ -238,6 +239,8 @@ model ScanHistory {
   companyId    String
   status       ScanStatus
   jobsFound    Int        @default(0)
+  jobsMatched  Int        @default(0)
+  strategy     String?
   errorMessage String?    @db.Text
   scannedAt    DateTime   @default(now())
 
